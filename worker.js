@@ -73,7 +73,7 @@ function processWithVisionApi(message) {
                     'Content-Type': 'application/json'
                 },
                 'json': {
-                    "url": 'https://scontent.fccu1-1.fna.fbcdn.net/v/t1.0-9/16003248_1823166154565384_7045647734064378299_n.jpg?oh=469d831837c728157420f4d341950af2&oe=599590C0'
+                    "url": message.url
                 }
             }
 
