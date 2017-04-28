@@ -11,6 +11,7 @@ var redis = require("redis"),
 
 
 const COMPUTER_VISION_KEY = '8bc2ed58753d4f09ba7ee07ce1b9303e';
+const EMOTION_DETECTION_KEY = 'cb542a96122f45bdb9e74cfaeba96f81';
 const REST_DB_APIKEY = '85d572967adac78254a7f9cb0b42003caaf3b';
 const REST_DB_URL = 'https://alexaskill-c6ca.restdb.io/rest/';
 
@@ -30,6 +31,9 @@ subscriberClient.on("message", function(channel, message) {
         case 'visionapichannel':
             processWithVisionApi(JSON.parse(message));
             break;
+        case 'emotionapichannel':
+            processWithEmotionApi(JSON.parse(message));
+            break;
         default:
             console.log('Doesnt match any of the channels')
 
@@ -38,6 +42,7 @@ subscriberClient.on("message", function(channel, message) {
 });
 
 subscriberClient.subscribe("visionapichannel");
+subscriberClient.subscribe("emotionapichannel");
 
 
 /**
@@ -186,4 +191,183 @@ function processWithVisionApi(message) {
         }
     })
 
+}
+
+
+function processWithEmotionApi(message) {
+    if (!message.url) {
+        return;
+    }
+
+    async.waterfall([
+
+        /**
+         * Fetches the data from the Microsoft Azure Service
+         * @param  {Function} callback Waterfall Callback Function
+         */
+        function(callback) {
+
+            var imageUrl = message.url;
+            var query = {
+                'visualFeatures': 'Tags,Description',
+                'language': 'en'
+            }
+
+            var requestOptions = {
+                'uri': 'https://westus.api.cognitive.microsoft.com/emotion/v1.0/recognize',
+                'method': 'POST',
+                'headers': {
+                    'Ocp-Apim-Subscription-Key': EMOTION_DETECTION_KEY,
+                    'Content-Type': 'application/json'
+                },
+                'json': {
+                    "url": message.url
+                }
+            }
+
+            request(requestOptions, function(error, response, body) {
+
+                if (error) {
+                    callback(error);
+                    return;
+                }
+
+                console.log('------------AZURE RESPONSE-------------'.grey)
+                console.log(JSON.stringify(body).green);
+                console.log('------------AZURE RESPONSE-------------'.grey)
+
+                var responseText = 'The person is ';
+                if (body.length == 0) {
+                    responseText = 'No emotion detected'
+                } else {
+
+                    var scores = body[0].scores;
+                    var emotion;
+                    var max = 0;
+                    for (var prop in scores) {
+                        var eachScore = scores[prop]
+                        if (max < eachScore) {
+                            max = eachScore
+                            emotion = prop
+                        }
+                    }
+                    emotion = convertEmotion(emotion);
+                    responseText += emotion
+
+                }
+                console.log(responseText)
+                callback(null, responseText);
+            });
+        },
+
+
+        /**
+         * Function to check whether a previous message is present in the database or not
+         * @param  {String}   responseText Text response after parsing
+         * @param  {Function} callback     Waterfall callback
+         */
+        function(responseText, callback) {
+            var requestOptions = {
+                'uri': REST_DB_URL + 'emotionapi',
+                'method': 'GET',
+                'headers': {
+                    'cache-control': 'no-cache',
+                    'x-apikey': REST_DB_APIKEY,
+                    'Content-Type': 'application/json'
+                },
+                json: true
+            }
+
+            request(requestOptions, function(error, response, body) {
+                if (error) {
+                    callback(error);
+                    return;
+                }
+
+                console.log('------------REST DB RESPONSE-------------'.grey)
+                console.log(JSON.stringify(body).green)
+                console.log('------------REST DB RESPONSE-------------'.grey)
+
+                if (body.length == 0) {
+                    callback(null, 'POST', responseText, null);
+                } else {
+                    var messageId = body[0]._id;
+                    callback(null, 'PUT', responseText, messageId);
+                }
+            });
+        },
+
+        /**
+         * Function to POST/PUT at the rest db with the new message
+         * @param  {String}   method       Desired operation on the database
+         * @param  {String}   responseText Parsed message to be stored in the database
+         * @param  {String}   messageId    Message ID if there exists a previous message
+         * @param  {Function} callback     Waterfall callback
+         */
+        function(method, responseText, messageId, callback) {
+
+            var requestUrl = REST_DB_URL + 'emotionapi';
+            if (method == 'PUT') {
+                requestUrl += '/' + messageId;
+            }
+
+            var requestOptions = {
+                'uri': requestUrl,
+                'method': method,
+                'headers': {
+                    'cache-control': 'no-cache',
+                    'x-apikey': REST_DB_APIKEY,
+                    'Content-Type': 'application/json'
+                },
+                'body': {
+                    "message": responseText
+                },
+                json: true
+            }
+
+            request(requestOptions, function(error, response, body) {
+                if (error) {
+                    callback(error);
+                    return;
+                }
+
+                console.log('------------REST DB RESPONSE AFTER SAVE-------------'.grey)
+                console.log(JSON.stringify(body).green);
+                console.log('------------REST DB RESPONSE AFTER SAVE-------------'.grey)
+
+                callback(null);
+            });
+        }
+    ], function(error) {
+        if (error) {
+            console.log('------------ERROR-------------'.grey)
+            console.log(JSON.stringify(error).red);
+            console.log('------------ERROR-------------'.grey)
+        }
+    });
+}
+
+
+function convertEmotion(emotion) {
+    switch (emotion) {
+        case "happiness":
+            return "happy"
+        case "anger":
+            return "angry"
+        case "contempt":
+            return "contemptful";
+        case "disgust":
+            return "disgustful"
+        case "fear":
+            return "scared"
+        case "happiness":
+            return "happy"
+        case "neutral":
+            return "neutral"
+        case "sadness":
+            return "sad"
+        case "surprise":
+            return "surprised"
+
+    }
 }
