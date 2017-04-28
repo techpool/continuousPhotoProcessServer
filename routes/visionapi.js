@@ -14,6 +14,10 @@ router.post('/process', function(req, res, next) {
     publisherClient.publish("visionapichannel", JSON.stringify({
         url: url
     }));
+
+    publisherClient.publish("emotionapichannel", JSON.stringify({
+        url: url
+    }));
     res.send('Hello from vision api')
 });
 
